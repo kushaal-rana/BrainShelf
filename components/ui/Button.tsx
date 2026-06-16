@@ -58,7 +58,7 @@ export function Button({ label, onPress, variant = 'primary', disabled, icon, st
         ]}
       >
         {icon}
-        <Text variant="subtitle" style={{ color: fg }}>
+        <Text variant="subtitle" numberOfLines={1} style={{ color: fg }}>
           {label}
         </Text>
       </Animated.View>

@@ -1,14 +1,85 @@
 // components/FolderView.tsx — the reusable adaptive Drive browser: subfolders (tap → deeper) +
 // videos (tap → play), with pull-to-refresh. Powers the Library root and every folder/[id] screen.
 import { useState } from 'react';
-import { View, ScrollView, RefreshControl, Pressable } from 'react-native';
+import { View, ScrollView, RefreshControl, Pressable, Alert } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Text, Card, Skeleton } from './ui';
+import * as Haptics from 'expo-haptics';
+import { Text, Card, Skeleton, ProgressRing } from './ui';
 import { useDriveFolder, type DriveItem } from '../lib/drive';
+import { formatBytes } from '../lib/format';
+import { usePinnedFolders, togglePin } from '../lib/pinnedFolders';
+import { useLessonProgress } from '../lib/progress';
+import { useDownload, startDownload } from '../lib/downloads';
 import { colors, radius, space } from '../theme/obsidian';
 
+function LessonStatus({ fileId }: { fileId: string }) {
+  const progress = useLessonProgress(fileId);
+  if (!progress) return null;
+  if (progress.completed) {
+    return <Ionicons name="checkmark-circle" size={24} color={colors.gold} />;
+  }
+  if (progress.duration > 0 && progress.position > 0) {
+    const pct = Math.round((progress.position / progress.duration) * 100);
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+        <ProgressRing
+          progress={progress.position / progress.duration}
+          size={26}
+          strokeWidth={3}
+          showLabel={false}
+        />
+        <Text variant="caption" color="muted">
+          {pct}%
+        </Text>
+      </View>
+    );
+  }
+  return null;
+}
+
+function DownloadButton({ fileId, name, size }: { fileId: string; name: string; size?: number }) {
+  const dl = useDownload(fileId);
+
+  const confirmDownload = () => {
+    void Haptics.selectionAsync();
+    const sizeLabel = size ? ` (${formatBytes(size)})` : '';
+    Alert.alert('Download lesson?', `${name}${sizeLabel} will be saved for offline playback.`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Download', onPress: () => void startDownload(fileId, name) },
+    ]);
+  };
+
+  if (dl?.status === 'done') {
+    return <Ionicons name="checkmark-done-circle" size={22} color={colors.gold} />;
+  }
+  if (dl?.status === 'downloading') {
+    return (
+      <Text variant="caption" color="gold">
+        {Math.round(dl.progress * 100)}%
+      </Text>
+    );
+  }
+  return (
+    <Pressable onPress={confirmDownload} hitSlop={10} style={{ padding: space.xs }}>
+      <Ionicons
+        name={dl?.status === 'error' ? 'alert-circle-outline' : 'download-outline'}
+        size={20}
+        color={dl?.status === 'error' ? colors.danger : colors.muted}
+      />
+    </Pressable>
+  );
+}
+
 function Item({ item, onPress }: { item: DriveItem; onPress: () => void }) {
+  const { pinned } = usePinnedFolders();
+  const isPinned = pinned.some((p) => p.id === item.id);
+
+  const onToggle = () => {
+    void Haptics.selectionAsync();
+    togglePin({ id: item.id, name: item.name });
+  };
+
   return (
     <Pressable onPress={onPress}>
       {({ pressed }) => (
@@ -26,10 +97,33 @@ function Item({ item, onPress }: { item: DriveItem; onPress: () => void }) {
             >
               <Ionicons name={item.isFolder ? 'folder' : 'play'} size={20} color={colors.gold} />
             </View>
-            <Text variant="body" numberOfLines={2} style={{ flex: 1 }}>
-              {item.name}
-            </Text>
-            <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text variant="body" numberOfLines={2}>
+                {item.name}
+              </Text>
+              {!item.isFolder && item.size ? (
+                <Text variant="caption" color="muted">
+                  {formatBytes(item.size)}
+                </Text>
+              ) : null}
+            </View>
+            {item.isFolder ? (
+              <>
+                <Pressable onPress={onToggle} hitSlop={10} style={{ padding: space.xs }}>
+                  <Ionicons
+                    name={isPinned ? 'star' : 'star-outline'}
+                    size={20}
+                    color={isPinned ? colors.gold : colors.muted}
+                  />
+                </Pressable>
+                <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+              </>
+            ) : (
+              <>
+                <LessonStatus fileId={item.id} />
+                <DownloadButton fileId={item.id} name={item.name} size={item.size} />
+              </>
+            )}
           </View>
         </Card>
       )}

@@ -8,6 +8,7 @@ export type DriveItem = {
   id: string;
   name: string; // cleaned for display
   isFolder: boolean;
+  size?: number; // bytes (lessons only)
 };
 
 export type FolderContents = {
@@ -39,28 +40,35 @@ export function extractFolderId(input: string): string | null {
   return /^[a-zA-Z0-9_-]+$/.test(s) ? s : null;
 }
 
-type DriveFile = { id: string; name: string; mimeType: string };
+type DriveFile = { id: string; name: string; mimeType: string; size?: string };
+
+// One authenticated Drive API GET (fresh Bearer token each call). Throws a friendly error on non-2xx.
+async function driveFetch(path: string, errorLabel?: string): Promise<Response> {
+  const token = await getAccessToken();
+  const res = await fetch(`https://www.googleapis.com/drive/v3/${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    throw new Error(errorLabel ? `${errorLabel} (Drive ${res.status})` : `Drive ${res.status}`);
+  }
+  return res;
+}
 
 // List every child of a folder (paginated), split into folders + video lessons (others ignored).
 export async function listFolder(folderId: string): Promise<FolderContents> {
-  const token = await getAccessToken();
   const collected: DriveFile[] = [];
   let pageToken: string | undefined;
 
   do {
     const params = new URLSearchParams({
       q: `'${folderId}' in parents and trashed = false`,
-      fields: 'nextPageToken, files(id, name, mimeType)',
+      fields: 'nextPageToken, files(id, name, mimeType, size)',
       orderBy: 'name',
       pageSize: '1000',
     });
     if (pageToken) params.set('pageToken', pageToken);
 
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error(`Couldn't load this folder (Drive ${res.status})`);
-
+    const res = await driveFetch(`files?${params}`, "Couldn't load this folder");
     const json = (await res.json()) as { files?: DriveFile[]; nextPageToken?: string };
     if (json.files) collected.push(...json.files);
     pageToken = json.nextPageToken;
@@ -72,7 +80,12 @@ export async function listFolder(folderId: string): Promise<FolderContents> {
     if (f.mimeType === FOLDER_MIME) {
       folders.push({ id: f.id, name: cleanName(f.name, true), isFolder: true });
     } else if (f.mimeType.startsWith('video/')) {
-      videos.push({ id: f.id, name: cleanName(f.name, false), isFolder: false });
+      videos.push({
+        id: f.id,
+        name: cleanName(f.name, false),
+        isFolder: false,
+        size: f.size ? Number(f.size) : undefined,
+      });
     }
   }
   folders.sort(byNaturalOrder);
@@ -82,11 +95,7 @@ export async function listFolder(folderId: string): Promise<FolderContents> {
 
 // Folder title (for a screen header), e.g. the course / section name.
 export async function getFolderName(folderId: string): Promise<string> {
-  const token = await getAccessToken();
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${folderId}?fields=name`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`Drive ${res.status}`);
+  const res = await driveFetch(`files/${folderId}?fields=name`);
   const json = (await res.json()) as { name?: string };
   return json.name ?? 'Folder';
 }

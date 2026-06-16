@@ -11,14 +11,23 @@ import { PlayerControls } from './PlayerControls';
 import { SettingsSheet } from './SettingsSheet';
 import { radius, space } from '../../theme/obsidian';
 import { getAccessToken } from '../../lib/auth';
+import { getProgress, saveProgress } from '../../lib/progress';
 
 const driveStreamUrl = (fileId: string) =>
   `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
 const HIDE_MS = 3000;
+const SAVE_EVERY = 5; // persist progress at most every N seconds of playback
+
+const mmss = (s: number) => {
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2, '0')}`;
+};
 
 type VideoPlayerProps = {
   fileId: string;
-  token: string;
+  token?: string;
+  localUri?: string;
 };
 
 /**
@@ -26,20 +35,20 @@ type VideoPlayerProps = {
  * premium overlay: scrubber, settings (speed/audio/subs), tap-to-toggle + auto-hide,
  * double-tap seek, hold-to-2×, and landscape fullscreen.
  */
-export function VideoPlayer({ fileId, token }: VideoPlayerProps) {
-  const player = useVideoPlayer(
-    {
-      uri: driveStreamUrl(fileId),
-      headers: { Authorization: `Bearer ${token}` },
-      contentType: 'progressive',
-    },
-    (p) => {
-      p.timeUpdateEventInterval = 0.25;
-      p.preservesPitch = true; // keep natural pitch at 2× / non-1× speeds (no chipmunk voice)
-      p.staysActiveInBackground = true; // keep audio playing when the app is backgrounded
-      p.play();
-    }
-  );
+export function VideoPlayer({ fileId, token, localUri }: VideoPlayerProps) {
+  const source = localUri
+    ? { uri: localUri }
+    : {
+        uri: driveStreamUrl(fileId),
+        headers: { Authorization: `Bearer ${token ?? ''}` },
+        contentType: 'progressive' as const,
+      };
+  const player = useVideoPlayer(source, (p) => {
+    p.timeUpdateEventInterval = 0.25;
+    p.preservesPitch = true; // keep natural pitch at 2× / non-1× speeds (no chipmunk voice)
+    p.staysActiveInBackground = true; // keep audio playing when the app is backgrounded
+    p.play();
+  });
 
   const { isPlaying } = useEvent(player, 'playingChange', { isPlaying: player.playing });
   const { status, error } = useEvent(player, 'statusChange', { status: player.status, error: undefined });
@@ -62,6 +71,7 @@ export function VideoPlayer({ fileId, token }: VideoPlayerProps) {
   const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([]);
   const [currentSubtitle, setCurrentSubtitle] = useState<SubtitleTrack | null>(null);
   const [recovering, setRecovering] = useState(false);
+  const [resumedAt, setResumedAt] = useState<number | null>(null);
 
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevRate = useRef(1);
@@ -69,6 +79,19 @@ export function VideoPlayer({ fileId, token }: VideoPlayerProps) {
   const retriesRef = useRef(0);
   const lastPositionRef = useRef(0);
   const pendingSeekRef = useRef<number | null>(null);
+  const didResumeRef = useRef(false);
+  const lastSavedRef = useRef(0);
+  const durationRef = useRef(0);
+
+  // Resume target captured once: skip if barely started or basically finished.
+  const resumeTargetRef = useRef<number | null | undefined>(undefined);
+  if (resumeTargetRef.current === undefined) {
+    const saved = getProgress(fileId);
+    resumeTargetRef.current =
+      saved && saved.position > 5 && (saved.duration === 0 || saved.position < saved.duration - 10)
+        ? saved.position
+        : null;
+  }
 
   const clearHide = useCallback(() => {
     if (hideTimer.current) {
@@ -89,6 +112,14 @@ export function VideoPlayer({ fileId, token }: VideoPlayerProps) {
   useEffect(() => {
     if (status === 'readyToPlay') {
       retriesRef.current = 0;
+      if (!didResumeRef.current) {
+        didResumeRef.current = true;
+        if (resumeTargetRef.current != null) {
+          player.currentTime = resumeTargetRef.current;
+          setResumedAt(resumeTargetRef.current);
+          setTimeout(() => setResumedAt(null), 3000);
+        }
+      }
       if (pendingSeekRef.current != null) {
         player.currentTime = pendingSeekRef.current;
         pendingSeekRef.current = null;
@@ -101,17 +132,30 @@ export function VideoPlayer({ fileId, token }: VideoPlayerProps) {
     }
   }, [status, player]);
 
-  // Remember the latest playback position so we can resume there after a mid-stream recovery.
+  // Remember the latest position (for mid-stream recovery) + persist progress throttled to ~5s.
   useEffect(() => {
     if (currentTime > 0) lastPositionRef.current = currentTime;
-  }, [currentTime]);
+    if (duration > 0) durationRef.current = duration;
+    if (duration > 0 && Math.abs(currentTime - lastSavedRef.current) >= SAVE_EVERY) {
+      lastSavedRef.current = currentTime;
+      saveProgress(fileId, currentTime, duration);
+    }
+  }, [currentTime, duration, fileId]);
+
+  // Persist the final position when leaving the player.
+  useEffect(
+    () => () => {
+      if (durationRef.current > 0) saveProgress(fileId, lastPositionRef.current, durationRef.current);
+    },
+    [fileId]
+  );
 
   // Mid-stream token recovery: a Drive token can expire during a long video → the next range
   // request 401s and the player goes to 'error'. Silently fetch a fresh token, swap the source,
   // and resume at the last position. Capped at 2 rapid tries (reset on readyToPlay) so a genuine
   // network/codec error can't loop.
   useEffect(() => {
-    if (status !== 'error' || recoveringRef.current || retriesRef.current >= 2) return;
+    if (localUri || status !== 'error' || recoveringRef.current || retriesRef.current >= 2) return;
     recoveringRef.current = true;
     retriesRef.current += 1;
     pendingSeekRef.current = lastPositionRef.current || null;
@@ -131,7 +175,7 @@ export function VideoPlayer({ fileId, token }: VideoPlayerProps) {
         recoveringRef.current = false;
         setRecovering(false);
       });
-  }, [status, player, fileId]);
+  }, [status, player, fileId, localUri]);
 
   // Reveal controls on play-state / settings change; auto-hide while playing.
   useEffect(() => {
@@ -287,6 +331,22 @@ export function VideoPlayer({ fileId, token }: VideoPlayerProps) {
           >
             <Text variant="label" color="gold">
               2× speed
+            </Text>
+          </View>
+        </View>
+      ) : null}
+      {resumedAt != null ? (
+        <View style={{ position: 'absolute', top: space.lg, left: 0, right: 0, alignItems: 'center', pointerEvents: 'none' }}>
+          <View
+            style={{
+              backgroundColor: 'rgba(0,0,0,0.6)',
+              paddingHorizontal: space.md,
+              paddingVertical: space.xs,
+              borderRadius: radius.pill,
+            }}
+          >
+            <Text variant="label" color="gold">
+              Resumed at {mmss(resumedAt)}
             </Text>
           </View>
         </View>

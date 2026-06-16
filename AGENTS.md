@@ -12,17 +12,24 @@ between versions). **From Phase 2 the app runs as an EAS dev build, NOT Expo Go*
 
 ## 📍 Status & Progress
 
-**Current phase:** Phase 2 — Google auth + live Drive library (2.0–2.4 ✅, PiP verify pending) · **➡️ NEXT: verify PiP → 2.5 close-out (quality gate) → Phase 3** · **Updated:** 2026-06-13
+**Current phase:** Phase 4 — v1 **code-complete** ✅ (icon/splash + standalone APK live; PiP dropped) · **➡️ NEXT SESSION: rebuild final `preview` APK (folds in the button fix) → install + confirm the "Complete" button on Motorola → distribute to family → mark Phase 4 ✅** · **Updated:** 2026-06-15
 
 - [x] **M1 spike** — Drive streaming proven on **Android** (expo-video + Bearer + Range) ✅
 - [x] **Phase 0 — Foundation** (A install libs · B Expo Router · C theme/fonts/UI kit) ✅
 - [x] **Phase 1 — Premium player** (A foundation · B controls/gold scrubber · C gestures · D landscape) ✅ (E → Phase 2.4)
-- [~] **Phase 2 — Google auth + live Drive library** (EAS dev build) ← IN PROGRESS (nearly done)
+- [x] **Phase 2 — Google auth + live Drive library** (EAS dev build) ✅ (PiP deferred)
   - [x] 2.0 EAS dev build · 2.1 Google Cloud OAuth · 2.2 Google Sign-In · **401 mid-stream refresh** · 2.3 live adaptive Drive library · 2.4 background audio — all ✅ **verified on-device 2026-06-13**
-  - [ ] 2.4 **PiP** — auto-PiP flags are in code; **needs on-device verify** (enable the per-app PiP permission first — Android doesn't prompt for it)
-  - [ ] 2.5 **close-out** — run the end-of-phase quality gate, then mark Phase 2 ✅
-- [ ] **Phase 3 — Resume/progress · mark-complete · offline downloads** ← AFTER 2.5
-- [ ] **Phase 4 — Polish + APK** (icon/splash, EAS APK, family access)
+  - [x] 2.5 **close-out** — quality gate passed: `tsc` clean (strict + noUnusedLocals/Params), DRY extractions applied, no dead code ✅ 2026-06-14
+  - [x] **★ Pin folders** (added during close-out) — `lib/pinnedFolders.ts` + `PinnedRail` + star toggle on folder rows; persisted ✅ verified on-device 2026-06-14
+  - [x] 2.4 **PiP — DROPPED for v1** (per user 2026-06-15). Config is correct (`supportsPictureInPicture: true`) but the window won't pop on-device even in the standalone build → likely a vendor restriction (Samsung/Motorola). Background audio works and is enough; not worth chasing.
+- [x] **Phase 3 — Resume/progress · mark-complete · offline downloads** ✅
+  - [x] **Progress/resume + mark-complete** — per-lesson position+completion (AsyncStorage), silent auto-resume + "Resumed at" pill, 90% auto-complete + manual ✓ toggle, ring+% / ✓ on lesson rows ✅ verified on-device 2026-06-14
+  - [x] **Offline downloads** — per-lesson download (Bearer + live %), play local when present, Downloads tab (size · total · delete), size label + confirm on the download tap ✅ verified on-device 2026-06-14
+- [~] **Phase 4 — Polish + APK** ← IN PROGRESS
+  - [x] **Icon + splash** — custom Obsidian icon (gold books+play): `assets/icon.png` (full) + adaptive foreground (transparent symbol) on `#050505` + `expo-splash-screen` (symbol on `#050505`) ✅ live on-device 2026-06-15
+  - [x] **Standalone APK** — `eas.json` `preview` (internal + `buildType: apk`) → installable APK built + running on Samsung / Motorola / Realme (full app, standalone) ✅ 2026-06-15
+  - [x] **Button no-wrap fix** — `Button` label `numberOfLines={1}` + shortened "Complete" (it wrapped to 2 lines on some devices); tsc clean — **ships in the next rebuild**
+  - [ ] **Final APK + family (next session)** — rebuild `preview` (folds in the button fix) → install + confirm the "Complete" button on Motorola → share the APK (each signs in with their own Google + sets their folder). **PiP dropped** for v1.
 
 ## ▶️ Current state (what exists right now)
 
@@ -33,31 +40,41 @@ between versions). **From Phase 2 the app runs as an EAS dev build, NOT Expo Go*
   - `app/(tabs)/_layout.tsx` — bottom tabs **Library / Downloads / Settings**, gold active tint.
   - `app/(tabs)/index.tsx` (**Library**) — gated: not signed in → Connect Google · no root folder → "set it in Settings" · else → `<FolderView>` of the root folder.
   - `app/(tabs)/settings.tsx` — Google account (email + Sign out / Connect) + **Course folder** paste-input (Drive link/ID → saved, shows resolved name).
-  - `app/(tabs)/downloads.tsx` — placeholder (Phase 3).
+  - `app/(tabs)/downloads.tsx` — **Downloads** manager: lists downloaded + in-flight lessons (size · total · delete); tap a finished one → plays the local file.
   - `app/folder/[id].tsx` — folder route (back header + name) rendering `<FolderView>` (the adaptive browser at any depth).
   - `app/player/[id].tsx` — player route. Fetches a fresh token via `getAccessToken()` (loading + error states); fileId via param, token never in the URL.
 - **Adaptive browser (2.3):** `components/FolderView.tsx` — the **one reusable component**: lists a folder's subfolders (tap → push `/folder/[id]`) + `video/*` (tap → push `/player/[id]`), pull-to-refresh, skeletons. Library = FolderView at the root; every deeper level is the same component. In-memory cache → instant back-nav.
 - **Design system:** `theme/obsidian.ts` (colors/space/radius/font/text/motion) · `components/ui/` = `Screen`, `Text`, `Button`, `Card`, `ProgressRing`, `Skeleton` (+ barrel).
 - **Player (Phase 1 + 2):** `components/player/` = `VideoPlayer` (expo-video + Bearer + `progressive` + `preservesPitch`; **401 recovery** — on `error`, refresh token → `player.replace()` → resume at last position, capped at 2 + "Reconnecting…"; **2.4** `staysActiveInBackground` + `startsPictureInPictureAutomatically`), `PlayerControls`, `Scrubber`, `SettingsSheet`. Gestures: double-tap ∓10s, hold-to-2×. Fullscreen = landscape `Modal` via `expo-screen-orientation`.
-- **Auth (2.2):** `lib/auth.ts` — Google Sign-In via `@react-native-google-signin`. Module store (`useAuth()` → `{user, ready}`) + `signIn`/`signOut`/`restoreSession` + `getAccessToken()`. webClientId + `drive.readonly`.
-- **Drive (2.3):** `lib/drive.ts` — `listFolder(id)` (paginated, Bearer, splits folders vs `video/*`, numeric sort, strips "Copy of "), `extractFolderId(link|id)`, `getFolderName(id)`, cached `useDriveFolder()` hook. `lib/rootFolder.ts` — root course folder persisted via AsyncStorage (`useRootFolder`/`setRootFolder`, lazy-loaded).
+- **Stores (shared):** `lib/createStore.ts` (reactive `useSyncExternalStore` core) + `lib/createPersistedStore.ts` (AsyncStorage-backed: lazy-load + persist) — the single store pattern behind `auth`, `rootFolder`, `pinnedFolders`.
+- **Auth (2.2):** `lib/auth.ts` — Google Sign-In via `@react-native-google-signin`, built on `createStore` (`useAuth()` → `{user, ready}`) + `signIn`/`signOut`/`restoreSession` + `getAccessToken()`. webClientId + `drive.readonly`.
+- **Drive (2.3):** `lib/drive.ts` — `listFolder(id)` (paginated, Bearer, splits folders vs `video/*`, numeric sort, strips "Copy of "), `extractFolderId(link|id)`, `getFolderName(id)`, shared `driveFetch()` helper, cached `useDriveFolder()` hook. `lib/rootFolder.ts` — root course folder persisted via `createPersistedStore` (`useRootFolder`/`setRootFolder`; migration-safe raw-id codec).
+- **Pinned folders (★):** `lib/pinnedFolders.ts` (`usePinnedFolders()` → `{pinned, ready}` + `togglePin`, persisted via `createPersistedStore`) · `components/PinnedRail.tsx` (fixed-height horizontal rail atop Library; tap → open, long-press → unpin) · star toggle on folder rows in `FolderView`.
+- **Progress (Phase 3):** `lib/progress.ts` — per-lesson `{position, duration, completed}` keyed by fileId, persisted via `createPersistedStore` (`getProgress`/`saveProgress`/`toggleComplete` + `useLessonProgress` selector). `VideoPlayer` silently auto-resumes (skip <5s / restart if ~finished) + saves throttled (5s) & on unmount + 90% auto-complete; `FolderView` lesson rows show a gold ring+% (in-progress) or ✓ (done); player route has a Back / Mark-complete toggle row.
+- **Downloads (Phase 3):** `lib/downloads.ts` — `startDownload`/`deleteDownload` + `useDownload`/`useDownloadsMap`/`getDownload`; in-memory live progress + completed records persisted (AsyncStorage); saved to `documentDirectory/downloads/<fileId>.mp4` via **`expo-file-system/legacy`** `createDownloadResumable` (Bearer + progress callback — the new `File` API has `headers` but no progress). Lesson rows have a download control + size label + confirm; `VideoPlayer`/player route play the **local file** when downloaded (no token, 401-recovery skipped). `lib/format.ts` = shared `formatBytes`.
 - **Fonts:** **Inter** only — display 700/800 + body 400/500/600, loaded in `_layout`; splash held until ready.
+- **Branding (Phase 4):** custom app icon `assets/icon.png` (gold books+play on dark) · Android adaptive = transparent foreground `assets/android-icon-foreground.png` on `#050505` · `expo-splash-screen` shows `assets/splash-icon.png` (the symbol) on `#050505`. (Expo default `android-icon-background/monochrome.png` removed.)
 - **Reference (not entry):** `App.tsx` = M1 spike player.
 - **Installed (SDK-54-aligned):** expo-router, react-native-reanimated@4.1.1 (+worklets@0.5.1, **exact-pinned**), gesture-handler, moti, @shopify/flash-list, expo-image, expo-font, expo-haptics, expo-linear-gradient, expo-blur, @expo/vector-icons, react-native-svg@15.12.1, @expo-google-fonts/inter, expo-splash-screen, expo-screen-orientation@9.0.9.
   **Phase 2 added:** expo-dev-client (~6.0.21) · @react-native-google-signin/google-signin (^16.1.2, config plugin auto-added) · **@react-native-async-storage/async-storage**.
+  **Phase 3 added:** expo-file-system (~19.0.23) — autolinked; **no rebuild was needed** (native already bundled via Expo core — see gotcha).
   Core: react@19.1.0, react-native@0.81.5, typescript@5.9.3.
 
 ## ⏭️ Remaining work — PLAN
 
-**2.4 — PiP verify (do FIRST next session).** Code is in (`staysActiveInBackground` + `startsPictureInPictureAutomatically`; expo-video plugin flags `supportsBackgroundPlayback`/`supportsPictureInPicture` baked into the current build). Background audio ✅ confirmed on-device → so the native config DID apply. **To verify PiP:** on the phone enable **Settings → Apps → BrainShelf → Picture-in-picture** (Android does NOT prompt — manual toggle), then play a lesson → press **Home** → expect a floating window. If there's **no PiP entry** for the app, the manifest flag didn't land → check the `expo-video` plugin config + rebuild.
+**⏸️ PiP — DEFERRED to the very end (after all phases, per user 2026-06-14).** Code is in (`staysActiveInBackground` + `startsPictureInPictureAutomatically`; expo-video plugin flags baked into the build). Background audio ✅ works, but the floating window never appeared on-device even with **Settings → Apps → BrainShelf → Picture-in-picture** enabled. When revisited (with the Phase 4 rebuild): confirm a **PiP entry exists** for the app (else the manifest flag didn't land → check `expo-video` plugin config + rebuild), then play → **Home** → expect the floating window.
 
-**2.5 — Close-out.** Run the End-of-phase quality gate (below): `tsc` clean + DRY/KISS/dead-code pass over the Phase 2 surface (`lib/auth.ts`, `lib/drive.ts`, `lib/rootFolder.ts`, `components/FolderView.tsx`, Library/Settings, `VideoPlayer`). Record findings, then mark Phase 2 ✅.
+**2.5 — Close-out ✅ (2026-06-14).** Quality gate passed: `tsc` clean (strict + noUnusedLocals/Params). DRY extractions applied — `lib/createStore.ts` + `lib/createPersistedStore.ts` (shared by auth/rootFolder/pinnedFolders) and `driveFetch()` in `lib/drive.ts`. No dead code. KISS: `VideoPlayer` (~348 lines) left as-is — cohesive, flagged for a future hook-extraction if it grows. **Added ★ pin-folders feature** during close-out.
 
-**Phase 3 — PLAN (Resume/progress · mark-complete · offline downloads).**
-- **Progress/resume:** persist per-lesson playback position + completion; save on `timeUpdate`/unmount, resume by seeking on load. Feed the real numbers into the `ProgressRing` on course rows (currently mock). Storage: AsyncStorage for simple key→value, or **`expo-sqlite`** if per-course progress grows structured.
-- **Mark-complete:** manual toggle + auto-complete near the end; ✓ badge on finished lessons.
-- **Offline downloads:** `expo-file-system` to fetch a lesson's Drive media (Bearer) to disk; play the local file when present; manage on the **Downloads** tab. ⚠️ big files — test course videos are 30–220 MB each.
-- Decisions for then: AsyncStorage vs expo-sqlite for progress · download UX (per-lesson vs per-course + queue) · storage limits/cleanup.
+**Phase 3 ✅ DONE (2026-06-14).** Progress/resume + mark-complete (`lib/progress.ts`) and offline downloads (`lib/downloads.ts` + Downloads tab + local playback). Decisions taken: AsyncStorage (not expo-sqlite) · silent resume · per-lesson watch UI · **per-lesson downloads** (not per-course/queue) · `expo-file-system/legacy` for its progress callback · confirm-on-download showing size. **No EAS rebuild was needed** (native already present — see gotcha). v1 limitations kept: downloads run while the app is open (no background/queue/auto-resume).
+
+**Phase 4 — IN PROGRESS (polish + APK).**
+- [x] **Icon + splash ✅ (2026-06-15)** — custom gold-on-dark icon (books+play) wired in `app.json`: `icon` + adaptive (transparent foreground on `#050505`) + `expo-splash-screen`. Live on-device.
+- [x] **Standalone APK ✅ (2026-06-15)** — `eas.json` `preview` (`distribution: internal` + `android.buildType: apk`) → installable APK via `npx eas-cli build --profile preview --platform android`. Built + running on Samsung/Motorola/Realme.
+- [x] **Button no-wrap fix ✅** — `Button` `numberOfLines={1}` + "Complete" label; awaiting the next rebuild to reach the phones.
+- [ ] **Final APK + family (NEXT SESSION — start here)** — rebuild `preview` (folds in the button fix) → install + confirm the "Complete" button on Motorola → distribute (EAS link / share the APK); each signs in with their own Google + sets their folder → then mark Phase 4 ✅.
+- [x] **PiP — DROPPED for v1** (per user 2026-06-15): config is correct but it won't pop on-device (vendor restriction); background audio works and is enough.
+- v1 essentially shippable. Future-only (out of v1): search, notes/bookmarks, iOS, casting, per-course download queue, background downloads.
 
 ## Key decisions & rules (don't re-litigate)
 
@@ -84,7 +101,10 @@ between versions). **From Phase 2 the app runs as an EAS dev build, NOT Expo Go*
 - **expo-video `useEvent(player, 'timeUpdate', initial)`** needs ALL payload fields in the initial value, else it types as `… | null` and destructuring fails (tsc error).
 - **Custom player controls:** `nativeControls={false}`; fullscreen via `expo-screen-orientation` + landscape `Modal` (native `enterFullscreen()` drops the custom overlay).
 - **Native deps need a dev-build rebuild** (Google Sign-In, AsyncStorage, expo-video background/PiP config). JS-only changes just reload over Metro. `expo install` auto-adds config plugins to app.json.
+- **…but `expo-file-system` needed NO rebuild on SDK 54** — its native module is already bundled via Expo core (`expo-asset` → `expo-file-system`), so `expo install expo-file-system` only added the JS layer and a Metro reload ran it. The rule above only forces a rebuild for native code **not already** transitively in the build. Use **`expo-file-system/legacy`** for `createDownloadResumable` (the new `File`/`Directory` API has `headers` but **no progress callback**).
 - **`eas build:configure` & first `eas build` prompt interactively** (create project / generate keystore) — run yourself, or `eas build … --non-interactive` (auto-generates keystore).
+- **Standalone APK = the `preview` profile** (`distribution: internal` + `android.buildType: apk`) via `npx eas-cli build --profile preview --platform android` (no global eas-cli needed). Reuses the project keystore → Google SHA-1 still matches. The trailing **"Install on an emulator? no"** prompt is just an optional local-emulator install — **no** is correct; install on the phone via the printed **EAS link / QR**. `preview` builds are standalone (no Metro) → a JS fix only reaches them via another rebuild.
+- **Asset filenames must be clean** (no spaces/commas) — Metro/EAS choke on paths like `ChatGPT Image ….png`; use `icon.png` etc. Adaptive icon: drop `backgroundImage` so the dark `backgroundColor` shows, and give a **transparent** foreground.
 - **Android PiP permission is a manual per-app toggle** (Settings → Apps → BrainShelf → Picture-in-picture) — Android does **NOT** runtime-prompt for it; auto-PiP won't fire until it's on. Background audio is independent (`staysActiveInBackground` + `supportsBackgroundPlayback`).
 - **Opening the dev-server URL in a browser** → `Unable to resolve "react-native-web/…"` in Metro. Harmless (web target isn't installed; Android-only). Connect via the **BrainShelf app**, not a browser.
 
@@ -132,6 +152,6 @@ Record findings + fixes in the Status section, then close the phase.
 
 ## Conventions
 
-- `app/` (Expo Router screens) · `components/` (UI kit in `ui/`, feature components like `FolderView`, player in `player/`) · `lib/` (`auth`, `drive`, `rootFolder` · `db`/`progress` to come) · `theme/obsidian.ts` (tokens).
+- `app/` (Expo Router screens) · `components/` (UI kit in `ui/`, feature components like `FolderView`/`PinnedRail`, player in `player/`) · `lib/` (`auth`, `drive`, `rootFolder`, `pinnedFolders`, `progress`, `downloads`, `format`, `createStore`/`createPersistedStore`) · `theme/obsidian.ts` (tokens).
 - TypeScript throughout. **`react-native-worklets/plugin` must be last** in `babel.config.js` (Reanimated 4).
 - Type-check with `npx tsc --noEmit` before declaring a step done.

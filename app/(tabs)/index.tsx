@@ -2,6 +2,7 @@ import { View } from 'react-native';
 import { router } from 'expo-router';
 import { Screen, Text, Card, Button } from '../../components/ui';
 import { FolderView } from '../../components/FolderView';
+import { PinnedRail } from '../../components/PinnedRail';
 import { useAuth, signIn } from '../../lib/auth';
 import { useRootFolder } from '../../lib/rootFolder';
 import { space } from '../../theme/obsidian';
@@ -40,7 +41,10 @@ export default function Library() {
           </Card>
         </View>
       ) : (
-        <FolderView folderId={rootId} />
+        <>
+          <PinnedRail />
+          <FolderView folderId={rootId} />
+        </>
       )}
     </Screen>
   );
